@@ -50,21 +50,34 @@ int inicializa()
 	else
 		return -1;
 }
-int read_block(unsigned int block, char *buffer)
+int read_block(unsigned int block, unsigned char *buffer)
 {
-	if(!inicializou)
+	/*if(!inicializou)
 	{
 		if(inicializa() != 0)
 			return -1;
 	}
-	else printf("ja inicializou\n");
+	else printf("ja inicializou\n");*/
 
 	int i;
 	for(i=0;i<boot.blockSize;i++)
-		if(read_sector(boot.blockSize * block + i, buffer + i) != 0)
+	{
+		if(read_sector((boot.blockSize * block) + i, buffer + (i*SECTOR_SIZE)) != 0)
 			return -1;
+	}
 	return 0;
-	
+}
+
+int readMFT(int registro, unsigned char *buffer)
+{
+	unsigned char readBuffer[boot.blockSize * SECTOR_SIZE];
+	read_block((registro/2)+1, readBuffer);
+	if(registro % 2 == 0)//par
+		memcpy(buffer, readBuffer, 512);
+	else//impar
+		memcpy(buffer, readBuffer+512, 512);
+
+	return 0;
 }
 
 
@@ -72,18 +85,40 @@ int read_block(unsigned int block, char *buffer)
 int main()
 {
 	inicializa();
-	char bufferBloco[boot.blockSize * SECTOR_SIZE];
-	//char MFTroot[32*]
+	struct t2fs_4tupla MFTrootTupla[32];
+	struct t2fs_record record[(boot.blockSize * SECTOR_SIZE) / sizeof(struct t2fs_record)];
 
+	printf("setor de boot:\n");
 	printf("%s\n", boot.id);
 	printf("%x\n", boot.version);
-	printf("%x\n", boot.blockSize);
+	printf("%d\n", boot.blockSize);
 	printf("%x\n", boot.MFTBlocksSize);
 	printf("%x\n", boot.diskSectorSize);
 
-	printf("bloco 1\n\n");
+	printf("\nMFT root\n\n");
 
-	read_block(1,bufferBloco);
+	readMFT(1,MFTrootTupla);
+
+	int i;
+	for(i=0;i<32;i++){
+		printf("Tupla %d:\n%u\n", i,MFTrootTupla[i].atributeType);
+		printf("VBN: %u\n", MFTrootTupla[i].virtualBlockNumber);
+		printf("LBN: %u\n", MFTrootTupla[i].logicalBlockNumber);
+		printf("MFT Number: %u\n\n", MFTrootTupla[i].numberOfContiguosBlocks);		
+	}
+
+	read_block(MFTrootTupla[0].logicalBlockNumber, record);
+
+	printf("\nDiretorio Raiz:\n\n");
+	for(i=0;i<(boot.blockSize * SECTOR_SIZE) / sizeof(struct t2fs_record);i++){
+		printf("record %d:\n%hhu\n",i, record[i].TypeVal);
+		printf("name: %s\n", record[i].name);
+		printf("blocks file size: %u\n", record[i].blocksFileSize);
+		printf("bytes file size: %u\n", record[i].bytesFileSize);
+		printf("MFT Number: %u\n\n", record[i].MFTNumber);		
+	}
+
+
 	
 	return 0;
 }
