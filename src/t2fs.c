@@ -13,7 +13,7 @@ typedef struct
 	int MFTNumber;
 	int dadoModificado;
 	int MFTmodificado;
-	char fileName[51];
+	char fileName[MAX_FILE_NAME_SIZE];
 	int handlevalido;
 	char buffer_blocoDados[4 * SECTOR_SIZE];
 	char buffer_blocoMFT[2 * SECTOR_SIZE];
@@ -21,9 +21,17 @@ typedef struct
 
 //variaveis globais
 struct t2fs_bootBlock boot;
+struct t2fs_4tupla MFTRootTupla[32];
 handle listaHandle[20];
+int recordsPorBloco;
 int inicializou = 0;
 
+//protótipos
+int inicializa();
+int read_block(unsigned int block, unsigned char *buffer);
+int readMFT(unsigned int registro, unsigned char *buffer);
+int findMFTNumber(char fileName[]);
+struct t2fs_record findt2fsRecord(struct t2fs_4tupla MFTtupla[], char *name);
 
 
 
@@ -44,7 +52,12 @@ int inicializa()
 		for(i=0;i<20;i++)
 			listaHandle[i].handlevalido = -1;
 
-		inicializou = 1;
+		//lendo Registro MFT do root
+		if(readMFT(1, (unsigned char*)MFTRootTupla) != 0)
+			return -1;
+
+		recordsPorBloco = (boot.blockSize * SECTOR_SIZE)/sizeof(struct t2fs_record);
+
 		return 0;
 	}
 	else
@@ -52,13 +65,6 @@ int inicializa()
 }
 int read_block(unsigned int block, unsigned char *buffer)
 {
-	/*if(!inicializou)
-	{
-		if(inicializa() != 0)
-			return -1;
-	}
-	else printf("ja inicializou\n");*/
-
 	int i;
 	for(i=0;i<boot.blockSize;i++)
 	{
@@ -68,7 +74,7 @@ int read_block(unsigned int block, unsigned char *buffer)
 	return 0;
 }
 
-int readMFT(int registro, unsigned char *buffer)
+int readMFT(unsigned int registro, unsigned char *buffer)
 {
 	unsigned char readBuffer[boot.blockSize * SECTOR_SIZE];
 	read_block((registro/2)+1, readBuffer);
@@ -80,12 +86,51 @@ int readMFT(int registro, unsigned char *buffer)
 	return 0;
 }
 
+int findMFTNumber(char fileName[])
+{
+	char * pch;
+	struct t2fs_4tupla MFTcurrent[32];
+	struct t2fs_record record;
+
+	memcpy(MFTcurrent,MFTRootTupla,512);
+	pch = strtok (fileName,"/");
+	while (pch != NULL)
+	{
+    	//printf ("%s\n",pch);
+    	record = findt2fsRecord(MFTcurrent, pch);
+    	readMFT(record.MFTNumber, (unsigned char *)MFTcurrent);
+    	pch = strtok (NULL, "/");
+    }
+	return record.MFTNumber;
+}
+
+struct t2fs_record findt2fsRecord(struct t2fs_4tupla MFTtupla[], char *name)
+{
+	int i = 0,j,k;
+	struct t2fs_record blocoDir[recordsPorBloco];
+	while(MFTtupla[i].atributeType == 1)
+	{
+		for(j=0; j<MFTtupla[i].numberOfContiguosBlocks; j++)
+		{
+			read_block(MFTtupla[i].logicalBlockNumber + j, (unsigned char *) blocoDir);
+			for(k=0; k<recordsPorBloco;k++)
+			{
+				if(strncmp(blocoDir[k].name, name, MAX_FILE_NAME_SIZE) == 0)
+					return blocoDir[k];
+			}
+		}
+		i++;
+	}
+	struct t2fs_record erro;
+	erro.MFTNumber = -1;
+	return erro;
+}
+
 
 
 int main()
 {
 	inicializa();
-	struct t2fs_4tupla MFTrootTupla[32];
 	struct t2fs_record record[(boot.blockSize * SECTOR_SIZE) / sizeof(struct t2fs_record)];
 
 	printf("setor de boot:\n");
@@ -96,28 +141,32 @@ int main()
 	printf("%x\n", boot.diskSectorSize);
 
 	printf("\nMFT root\n\n");
-
-	readMFT(1,MFTrootTupla);
-
+	
 	int i;
 	for(i=0;i<32;i++){
-		printf("Tupla %d:\n%u\n", i,MFTrootTupla[i].atributeType);
-		printf("VBN: %u\n", MFTrootTupla[i].virtualBlockNumber);
-		printf("LBN: %u\n", MFTrootTupla[i].logicalBlockNumber);
-		printf("MFT Number: %u\n\n", MFTrootTupla[i].numberOfContiguosBlocks);		
+		printf("Tupla %d:\nAtribute Type:%u\n", i,MFTRootTupla[i].atributeType);
+		printf("VBN: %u\n", MFTRootTupla[i].virtualBlockNumber);
+		printf("LBN: %u\n", MFTRootTupla[i].logicalBlockNumber);
+		printf("MFT Number: %u\n\n", MFTRootTupla[i].numberOfContiguosBlocks);		
 	}
 
-	read_block(MFTrootTupla[0].logicalBlockNumber, record);
+
+
+	read_block(MFTRootTupla[0].logicalBlockNumber, (unsigned char *)record);
 
 	printf("\nDiretorio Raiz:\n\n");
 	for(i=0;i<(boot.blockSize * SECTOR_SIZE) / sizeof(struct t2fs_record);i++){
-		printf("record %d:\n%hhu\n",i, record[i].TypeVal);
+		printf("record %d:\nType val:%hhu\n",i, record[i].TypeVal);
 		printf("name: %s\n", record[i].name);
 		printf("blocks file size: %u\n", record[i].blocksFileSize);
 		printf("bytes file size: %u\n", record[i].bytesFileSize);
 		printf("MFT Number: %u\n\n", record[i].MFTNumber);		
 	}
 
+	printf("findMFTNumber\n");
+
+	char name[] = "/file1";
+	printf("%d\n", findMFTNumber(name));
 
 	
 	return 0;
