@@ -32,6 +32,7 @@ int read_block(unsigned int block, unsigned char *buffer);
 int readMFT(unsigned int registro, unsigned char *buffer);
 int findMFTNumber(char fileName[]);
 struct t2fs_record findt2fsRecord(struct t2fs_4tupla MFTtupla[], char *name);
+ int allocatorBlock(int flag1, int blockNumber);
 
 
 
@@ -69,6 +70,17 @@ int read_block(unsigned int block, unsigned char *buffer)
 	for(i=0;i<boot.blockSize;i++)
 	{
 		if(read_sector((boot.blockSize * block) + i, buffer + (i*SECTOR_SIZE)) != 0)
+			return -1;
+	}
+	return 0;
+}
+
+int write_block(unsigned int block, unsigned char *buffer)
+{
+	int i;
+	for(i=0;i<boot.blockSize;i++)
+	{
+		if(write_sector((boot.blockSize * block) + i, buffer + (i*SECTOR_SIZE)) != 0)
 			return -1;
 	}
 	return 0;
@@ -126,6 +138,78 @@ struct t2fs_record findt2fsRecord(struct t2fs_4tupla MFTtupla[], char *name)
 	return erro;
 }
 
+ int allocatorBlock(int flag1, int blockNumber)
+ {
+ 	if(flag1 == 0)//alocar novo bloco, de preferencia proximo do blockNumber
+ 	{
+ 		if(getBitmap2(blockNumber + 1) == 0)
+ 		{
+ 			if(setBitmap2(blockNumber + 1, 1) == 0)
+ 				return blockNumber + 1;
+ 			else
+ 				return -1;
+  		}
+ 		else
+ 		{
+ 			int newBlock = 0;
+ 			while(newBlock <= boot.MFTBlocksSize)
+ 			{
+ 				newBlock = searchBitmap2(0);
+ 			}
+ 			return newBlock;
+ 		}
+ 	}
+ 	else//desalocar blockNumber
+ 	{
+ 		if(setBitmap2(blockNumber, 0) == 0)
+ 		{
+ 			return 0;
+ 		}
+ 		return -1;
+ 	}
+ }
+
+int allocMFT(int reg)
+{
+	struct t2fs_4tupla mft[64];
+	if(reg == 0)//alocar novo registro
+	{
+		int registro = 4;
+		int block = 3;
+		while(block <= boot.MFTBlocksSize)
+		{
+			read_block(block, (unsigned char *)mft);
+			if(mft[0].atributeType == -1)
+				return registro;
+			else if(mft[32].atributeType == -1)
+			{
+				return registro + 1;
+			}
+			block++;
+			registro += 2;
+		}
+		return -1;
+	}
+	else if(reg > 3)//desalocar rigistro indicado por reg
+	{
+		int regParImpar=0;
+		read_block((reg/2)+1,(unsigned char *)mft);
+		if(reg % 2 == 0)
+			regParImpar = 0;
+		else
+			regParImpar = 32;
+
+		mft[regParImpar].atributeType = -1;
+		mft[regParImpar].virtualBlockNumber = -1;
+		mft[regParImpar].logicalBlockNumber = -1;
+		mft[regParImpar].numberOfContiguosBlocks = -1;
+
+		write_block((reg/2)+1,(unsigned char *)mft);
+		return 0;
+	}
+	return -1;
+}
+
 
 
 int main()
@@ -167,6 +251,9 @@ int main()
 
 	char name[] = "/file1";
 	printf("%d\n", findMFTNumber(name));
+	allocMFT(5);
+	printf("%d\n", allocMFT(0));
+	
 
 	
 	return 0;
